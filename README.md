@@ -4,7 +4,7 @@ This repository contains a series of useful scripts for pentesting GraphQL endpo
 
 ## Basic Information
 
-This repository contains two scripts: [qGen.py]() and [effuzz.py]().
+This repository contains two scripts: [qGen.py](https://github.com/gitblanc/GraphQL-Scripts/tree/main/qGen) and [effuzz.py](https://github.com/gitblanc/GraphQL-Scripts/tree/main/effuzz).
 - `qGen.py` allows you to list all the methods available in your GraphQL schema and then generate a query to dump all possible information with a method (like `findAllUsers`).
 - `effuzz.py` allows you to check permissions in all the methods of your GraphQL schema (similar output to `ffuf`).
 
