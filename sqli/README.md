@@ -35,7 +35,7 @@ $ python3 sqli/sqli_detector.py https://example.com/graphql
 VULNERABLE PARAMETER: username (field: user)
 Evidence: Baseline != Attack (baseline {"data": {"user": null}}, attack {"data": {"user": {"uuid": "1"}}})
 Recommended sqlmap command:
-sqlmap -r 'repro-payloads/user_username_<timestamp>_<id>_marker.http' -p "JSON[query]" --batch --skip-urlencode --parse-errors --random-agent
+sqlmap --level 5 --risk 3 -r 'repro-payloads/user_username_<timestamp>_<id>_marker.http' -p "JSON[query]" --batch --skip-urlencode --parse-errors --random-agent
 --------------------------------------------------------------------------------
 VULNERABLE PARAMETER: username (field: user)
 Evidence: Baseline != Attack (baseline {"data": {"user": null}}, attack {"data": {"user": {"uuid": "3"}}})
