@@ -12,11 +12,10 @@ What it does
 Requirements
 - Python 3.7+
 - requests (HTTP client)
+```
 
 Install
 ```bash
-pip install requests
-# or, if a requirements file exists:
 pip install -r sqli/requirements.txt
 ```
 
