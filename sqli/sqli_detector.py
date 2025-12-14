@@ -279,7 +279,7 @@ def write_repro_request_file_with_marker(endpoint: str, headers: Dict[str, str],
 
 def _build_sqlmap_cmd_marker(repro_marker_path: str) -> str:
     # target JSON[query] on marker file, skip urlencode and parse errors
-    return f"sqlmap -r '{repro_marker_path}' -p \"JSON[query]\" --batch --skip-urlencode --parse-errors --random-agent"
+    return f"sqlmap --level 5 --risk 3 -r '{repro_marker_path}' -p \"JSON[query]\" --batch --skip-urlencode --parse-errors --random-agent"
 
 
 def run_detector(endpoint: str, headers: Dict[str, str]) -> List[Dict[str, Any]]:
