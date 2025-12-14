@@ -133,5 +133,3 @@ Only run effuzz on systems you are authorized to test. These tools are intended 
 
 - Use qGen to generate full queries for interesting methods discovered by effuzz.
 - Use the sqli helper to target string arguments found in introspection for simple SQLi checks.
-```
-```
