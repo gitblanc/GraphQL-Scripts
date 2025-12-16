@@ -1,55 +1,37 @@
+# GraphQL SQLi Detector (sqli_detector.py)
 
-# GraphQL SQLi Detector
+A compact GraphQL SQL injection mini-detector (Python). This script performs GraphQL introspection, attempts a set of SQLi-like payloads against candidate string arguments, and writes reproducible marker `.http` files for use with sqlmap. The detector includes heuristics to reduce false positives and attempts to populate required arguments using values extracted from simple queries or an optional limited crawler. It also prioritizes discovered admin API keys when filling key-like arguments to increase coverage of privileged code paths.
 
-A compact GraphQL SQL injection mini-detector (Python). This script performs GraphQL introspection, attempts a set of SQLi-like payloads against candidate string arguments, and writes reproducible marker `.http` files for use with sqlmap. The detector includes heuristics to reduce false positives and attempts to populate required arguments using values extracted from simple queries.
+---
 
 ## Key capabilities
 - Performs GraphQL introspection to discover `Query` fields and their arguments.
-- Attempts to extract real values from simple queries (tokens, keys, names) to use as baseline or to fill required arguments.
+- Extracts real values from simple queries (tokens, keys, names) to use as baseline or to fill required arguments.
+- Optional, opt-in crawling to follow relationships and collect more candidate inputs (Relay-style pagination attempts included).
+- Decodes common GraphQL global IDs encoded as base64 and adds decoded IDs as candidates.
 - Tests string-like arguments with a curated set of SQLi payloads.
-- Detects SQL error messages in GraphQL `errors` responses.
+- Detects SQL error messages included in GraphQL `errors`.
 - Detects response differences (baseline vs attack), `NULL`-on-attack, and other signals.
 - Writes reproducible `.http` marker files in `repro-payloads/` where the vulnerable value is replaced by `*`.
 - Produces a recommended sqlmap command for confirmed findings.
-- Uses confirmation rules to reduce false positives (report only on stronger evidence).
+- Prioritizes API keys discovered with role `admin` when filling key-like arguments (e.g. `apiKey`, `key`, `token`), increasing the chance to reach privileged code paths.
+- Uses confirmation rules to reduce false positives (reports only when evidence is strong).
 
 ---
 
 ## What the detector does (high-level)
-1. Runs GraphQL introspection to obtain schema types and `Query` fields.  
-2. Tries to extract values from simple, argument-less queries (e.g., lists of objects) to collect tokens / names that may help construct valid requests.  
+1. Runs GraphQL introspection to obtain types and `Query` fields.  
+2. Extracts values from simple, argument-less queries (seed phase) and, optionally, runs a limited BFS-style crawl:
+   - For seed fields it tries several query shapes (simple selection, Relay `first:N` with `edges.node`, and `first:N` without edges) to coax items out of paginated endpoints.
+   - Decodes base64/global IDs and adds decoded IDs (and `<Type>Id` keys) to candidate pools.
+   - Follows id-like args using extracted IDs to expand discovery.
 3. For each field with string-like arguments:
    - Builds a working baseline by trying a few combinations of plausible values for other args.
    - Sends curated SQLi-like payloads in the target argument.
-   - Skips results that are simple GraphQL syntax errors (not SQLi).
-   - Detects SQL error messages, response differences, and null-on-attack.
-   - If a required argument is missing, attempts to fill it from extracted values.
-4. For confirmed signals, writes a marker `.http` file with the attack request (vulnerable value replaced by `*`) and recommends a sqlmap command.
-
----
-
-## Output
-- Human-readable findings printed to stdout (colored if `colorama` is installed).
-- Repro marker files in `repro-payloads/` for each finding; filenames include a timestamp and short hash to avoid collisions.
-- Each finding includes:
-  - field and argument name
-  - arguments used for the attack
-  - evidence (error message or description)
-  - marker request path
-  - recommended sqlmap command (uses `-r <marker>` and `-p "JSON[query]"`)
----
-
-## Marker (.http) files
-- Generated marker files are complete HTTP POST requests to the GraphQL endpoint with a JSON body where the vulnerable value is replaced by `*`. Example:
-```
-POST /graphql HTTP/1.1
-Host: example.com
-Content-Type: application/json
-Authorization: Bearer TOKEN
-
-{"query":"query { user(id: \"123\") { email } }"}
-```
-- The script replaces the attacked value with `*` so sqlmap can inject into `JSON[query]` using `-p "JSON[query]"` and `-r <marker>`.
+   - Skips GraphQL syntax errors (not SQLi).
+   - Detects SQL error messages, response diffs, and null-on-attack.
+   - If a required argument is missing, attempts to fill it from extracted values (with a simple name-match fallback).
+4. For confirmed signals, writes a `.http` marker file with the attack request (attacked value replaced by `*`) and suggests a sqlmap command.
 
 ---
 
@@ -68,14 +50,14 @@ Examples:
   ```bash
   python sqli_detector.py https://example.com/graphql '{"Authorization":"Bearer TOKEN"}'
   ```
-- Run with crawling enabled (use only for authorized audits):
+- Run with crawling (authorized audits only):
   ```bash
-  python sqli_detector.py https://example.com/graphql '{"Authorization":"Bearer TOKEN"}' --crawl --crawl-depth 2 --max-requests 250 --max-items 10
+  python sqli_detector.py https://example.com/graphql '{"Authorization":"Bearer TOKEN"}' --crawl --crawl-depth 2 --max-requests 200 --max-items 10 --crawl-delay 0.1 --verbose
   ```
 
 ---
 
-## CLI flags (implemented in this version)
+## CLI flags (summary)
 - `<endpoint>` (positional)  
   GraphQL endpoint URL.
 
@@ -94,11 +76,46 @@ Examples:
 - `--max-items N` (default: 10)  
   Max items per list to inspect when extracting values.
 
+- `--crawl-delay FLOAT` (default: 0.0)  
+  Delay in seconds between requests during crawling.
+
+- `--verbose`  
+  Print queries and additional debug information (useful to inspect what the crawler is calling and the responses).
+  
+---
+
+## Output
+- Human-readable findings printed to stdout (colored if colorama is available).
+- Repro marker files written to `repro-payloads/` when findings are confirmed. Filenames include a sanitized field/arg name, timestamp, and short hash to avoid collisions.
+- Each finding contains:
+  - field and argument name
+  - arguments used for the attack
+  - evidence (error message or description)
+  - marker request path
+  - recommended sqlmap command:
+    ```
+    sqlmap --level 5 --risk 3 -r '<marker.http>' -p "JSON[query]" --batch --skip-urlencode --random-agent
+    ```
+
+---
+
+## Marker (.http) files
+- Marker files are full HTTP POST requests that include headers and a JSON body where the vulnerable value has been replaced by `*`. Example:
+  ```
+  POST /graphql HTTP/1.1
+  Host: example.com
+  Content-Type: application/json
+  Authorization: Bearer TOKEN
+
+  {"query":"query { user(id: \"123\") { email } }"}
+  ```
+- The target value in the JSON is substituted with `*` so sqlmap can inject into `JSON[query]` using `-r <marker>` and `-p "JSON[query]"`.
+
 ---
 
 ## Detection heuristics / confirmation rules
-To reduce noisy false positives, the detector reports a parameter only when one or more of the following hold:
-- A clear SQL error is present in GraphQL `errors` (matches common DB error signatures), OR
+To reduce noisy false positives the detector reports a parameter only when one or more of the following hold:
+- A clear SQL error is present in GraphQL `errors` (matches DB error signatures), OR
 - Two or more distinct payloads produce evidence, OR
 - A combination of strong signals (e.g., RESPONSE_DIFF + NULL_ON_ATTACK), OR
 - A `NULL_ON_ATTACK` signal confirmed against a meaningful baseline.
@@ -111,35 +128,20 @@ Signals checked:
 
 ---
 
-## Example output (sanitized)
-```
-[*] Running introspection on https://example.com/graphql
-[+] Baseline for user.email works with args: {'id': '123'}
-[!] Found 1 potential SQL injection findings:
-
-[1] SQL_ERROR_IN_RESPONSE: user.email
-    Arguments used: {'id': '123', 'email': "' OR 1=1--"}
-    Evidence: Syntax error near '...' (truncated)
-    Marker request: repro-payloads/user_email_20251215T103000Z_1a2b3c4d_marker.http
-    Recommended sqlmap command:
-    sqlmap --level 5 --risk 3 -r 'repro-payloads/user_email_20251215T103000Z_1a2b3c4d_marker.http' -p "JSON[query]" --batch --skip-urlencode --parse-errors --random-agent
---------------------------------------------------------------------------------
-```
-
----
-
 ## Limitations
-- The script uses a small, curated payload set — not exhaustive. Use sqlmap (the generated markers) for deeper automated testing.
-- No built-in concurrency or rate-limiting flags; tests run sequentially. For large schemas or many fields, extend the script to support workers.
-- The crawler increases request volume and may reveal or store sensitive data. Use only on authorized targets and with caution.
-- Time-based blind SQLi is not tested by default. Add time-based payloads and timing checks to detect blind techniques.
-- If GraphQL introspection is disabled, discovery will fail; manual schema input or alternative enumeration is required.
-- Complex input objects, deeply nested relationships or custom auth flows may need custom logic to populate arguments successfully.
+- Small, curated payload set — not exhaustive. Use sqlmap (the generated markers) for deeper automated testing.
+- Tests are sequential; there is no built-in concurrency/worker pool. For large schemas consider extending to multiple workers.
+- Crawling can reveal or store sensitive data. Use crawling only on authorized targets and treat `repro-payloads/` as sensitive output.
+- Time-based blind SQLi is not tested by default. Add time-based payloads and response timing checks to detect blind techniques.
+- If GraphQL introspection is disabled, discovery will fail; provide schema manually or use alternative enumeration techniques.
+- Complex input objects, deeply nested relationships, or custom auth flows may need custom logic to populate arguments successfully.
 
 ---
 
-## Extending / Contributions
-Ideas for future improvements:
-- Add boolean- and time-based payloads for blind SQLi detection.
-- Add concurrency/rate-limiting (worker pool + token bucket).
-- Add more robust extraction heuristics (emails, UUIDs, hashes) and fuzzy matching for argument names.
+## Suggested next improvements
+- Add flags for:
+  - concurrency / workers
+  - custom payload lists and strategies
+- Expand payloads to include boolean- and time-based techniques (blind SQLi).
+- Add more robust heuristics (email/UUID/hash detection, fuzzy matches).
+- 
